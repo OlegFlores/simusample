@@ -10,7 +10,8 @@ class SampleSimulation:
         # Placeholder for actual simulation logic
         print("SampleSimulation finished.")
 
-    def get_info(self):
+    @staticmethod
+    def get_info():
         return "A basic sample simulation."
 
 def run_simulation(params=None):
