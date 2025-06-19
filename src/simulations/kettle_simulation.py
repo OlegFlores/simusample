@@ -5,13 +5,25 @@ from pydantic import BaseModel, Field, conint, confloat, constr, validator
 from enum import Enum
 from typing import Optional
 
+def thermal_mass_j_per_c(csa_mm2, length_m):
+    c = 385  # J/kg·°C for copper
+    density = 8960  # kg/m³ for copper
+    area_m2 = csa_mm2 * 1e-6
+    total_length = length_m * 2  # round trip
+    volume = area_m2 * total_length  # m³
+    mass = volume * density  # kg
+    print(csa_mm2)
+    print(length_m)
+    print(c * mass)
+    return c * mass  # J/°C
+
 class BreakerTypeEnum(str, Enum):
     B = "B"
     C = "C"
     D = "D"
 
 class LoadParameters(BaseModel):
-    power_w: confloat(gt=0) = 2000.0 # Fixed at 2000W, but good to have it defined
+    power_w: confloat(gt=0) = 0
     voltage_v: confloat(gt=0) # e.g., 120 or 230
     operation_time_s: confloat(ge=60, le=3600) # 1 min to 1 hour
 
@@ -30,13 +42,13 @@ class SimulationInput(BaseModel):
     load: LoadParameters
     wire: WireParameters
     breaker: BreakerParameters
-    ambient_temperature_c: confloat() = 25.0
-    temperature_limit_c: confloat(gt=0) = 90.0
-    thermal_mass_j_per_c: confloat(gt=0) = 1000.0
+    ambient_temperature_c: confloat() = -10.0
+    temperature_limit_c: confloat(gt=0) = 110.0
+    thermal_mass_j_per_c: confloat(gt=0) = 0
     wire_max_safe_current_a: Optional[confloat(gt=0)] = None # Make it optional
 
     @validator('wire_max_safe_current_a', pre=True, always=True)
-    def set_wire_max_safe_current_based_on_csa(cls, v, values):
+    def set_wire_max_safe_current_based_on_csa(v, values):
         # This validator runs if 'wire_max_safe_current_a' is not provided or is None.
         # It requires 'wire' to be already processed by Pydantic.
         if v is None:
@@ -208,7 +220,8 @@ class KettleSimulation:
             "current_drawn_a": 0,
             "wire_resistance_ohm": 0,
             "power_loss_in_wire_w": 0,
-            "initial_assessment": ""
+            "initial_assessment": "",
+            "thermal_mass_j_per_c": thermal_mass_j_per_c(sim_input.wire.csa_mm2, sim_input.wire.length_m),
         }
 
         self.results["current_drawn_a"] = calculate_current(
@@ -256,8 +269,8 @@ class KettleSimulation:
             current_sim_time = self.env.now
             self.results["total_operation_time_s"] = current_sim_time
 
-            if self.sim_input.thermal_mass_j_per_c > 0:
-                delta_t = (self.results["power_loss_in_wire_w"] * time_step_s) / self.sim_input.thermal_mass_j_per_c
+            if self.results["thermal_mass_j_per_c"] > 0:
+                delta_t = (self.results["power_loss_in_wire_w"] * time_step_s) / self.results["thermal_mass_j_per_c"]
                 wire_temperature_c += delta_t
             self.results["final_wire_temp_c"] = wire_temperature_c
 
@@ -290,6 +303,7 @@ class KettleSimulation:
         print(f"--- Kettle Simulation Run ---")
         print(f"Parameters: {self.sim_input.model_dump_json(indent=2)}")
         print(f"Calculated Current: {self.results['current_drawn_a']:.2f}A")
+        print(f"Calculated thermal_mass_j_per_c: {self.results['thermal_mass_j_per_c']:.2f}J/°C")
         print(f"Wire Resistance: {self.results['wire_resistance_ohm']:.4f} Ohms")
         print(f"Power Loss in Wire: {self.results['power_loss_in_wire_w']:.2f}W")
 
